@@ -13,6 +13,7 @@
 
 namespace Plugin\Api\DependencyInjection;
 
+use Doctrine\Bundle\DoctrineBundle\DependencyInjection\Compiler\DoctrineOrmMappingsPass;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Extension\PrependExtensionInterface;
@@ -39,6 +40,21 @@ class ApiExtension extends Extension implements PrependExtensionInterface
         }
 
         $container->prependExtensionConfig('security', ['firewalls' => $replaced]);
+
+        $container->addCompilerPass(
+            DoctrineOrmMappingsPass::createXmlMappingDriver(
+                [
+                    realpath(__DIR__ . '/../Resource/config/doctrine') => 'Plugin\Api\Entity',
+                ],
+                [
+                    'trikoder.oauth2.persistence.doctrine.manager',
+                ],
+                'trikoder.oauth2.persistence.doctrine.enabled',
+                [
+                    'TrikoderOAuth2Bundle' => 'Trikoder\Bundle\OAuth2Bundle\Model',
+                ]
+            )
+        );
     }
 
     public function load(array $configs, ContainerBuilder $container)
