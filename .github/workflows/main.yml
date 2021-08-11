@@ -145,6 +145,9 @@ jobs:
         bin/console doctrine:schema:create
         bin/console eccube:fixtures:load
 
+    - name: Debug
+      if: ${{ always() }}
+      uses: mxschmitt/action-tmate@v3
     - name: Setup Plugin
       env:
         PLUGIN_CODE: ${{ matrix.plugin_code }}
