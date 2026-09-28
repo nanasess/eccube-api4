@@ -14,6 +14,8 @@
 namespace Plugin\Api44\Tests\GraphQL;
 
 use Eccube\Entity\Master\OrderStatus;
+use Eccube\Entity\Product;
+use Eccube\Entity\ProductClass;
 use Eccube\Tests\EccubeTestCase;
 use GraphQL\Error\DebugFlag;
 use GraphQL\Executor\ExecutionResult;
@@ -306,6 +308,26 @@ class SchemaTest extends EccubeTestCase
             ['2020-07-30T12:57:08', '/DateTime parse error/'],
             ['2020-07-30', '/DateTime parse error/'],
         ];
+    }
+
+    public function testQueryProductClassStock(): void
+    {
+        /** @var Product $Product */
+        $Product = $this->entityManager->find(Product::class, 1);
+        /** @var ProductClass $ProductClass */
+        $ProductClass = $Product->getProductClasses()->first();
+        $ProductClass->setStockUnlimited(false);
+        $ProductClass->setStock('7');
+        $this->entityManager->flush();
+
+        $result = $this->executeQuery('{ product(id:1) { ProductClasses { id stock ProductStock { stock } } } }');
+
+        self::assertArrayNotHasKey('errors', $result);
+        $actual = array_values(array_filter(
+            $result['data']['product']['ProductClasses'],
+            fn (array $pc): bool => $pc['id'] === (string) $ProductClass->getId()
+        ));
+        self::assertEquals([['id' => (string) $ProductClass->getId(), 'stock' => 7, 'ProductStock' => ['stock' => 7]]], $actual);
     }
 
     public function testMutationUpdateStock(): void

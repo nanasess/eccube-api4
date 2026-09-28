@@ -22,6 +22,7 @@ use Doctrine\ORM\Mapping\ManyToOneAssociationMapping;
 use Doctrine\ORM\Mapping\OneToManyAssociationMapping;
 use Doctrine\ORM\Mapping\OneToOneInverseSideMapping;
 use Doctrine\ORM\Mapping\OneToOneOwningSideMapping;
+use Eccube\Entity\ProductClass;
 use GraphQL\Type\Definition\ListOfType;
 use GraphQL\Type\Definition\NonNull;
 use GraphQL\Type\Definition\ObjectType;
@@ -34,6 +35,20 @@ use Plugin\Api44\GraphQL\Type\Definition\DateTimeType;
  */
 class Types
 {
+    /**
+     * マッピングに無いが, getter が値を返すフィールド. Doctrine の型と null を許すかで定義する.
+     *
+     * - ProductClass::stock: EC-CUBE 4.4 で在庫数を ProductStock::stock に一本化した際にマッピングから外れた.
+     *   ProductClass::getStock() は ProductStock::stock へ委譲するため, 従来どおり ProductClass 型で返す.
+     *
+     * @var array<class-string, array<string, array{type: string, nullable: bool}>>
+     */
+    private const UNMAPPED_FIELDS = [
+        ProductClass::class => [
+            'stock' => ['type' => 'decimal', 'nullable' => true],
+        ],
+    ];
+
     /** @var EntityManager */
     private EntityManager $entityManager;
 
@@ -98,6 +113,22 @@ class Types
                     return $acc;
                 }, []);
 
+                foreach (self::UNMAPPED_FIELDS[$classMetadata->name] ?? [] as $fieldName => $definition) {
+                    if (isset($classMetadata->fieldMappings[$fieldName])) {
+                        // マッピングされている EC-CUBE ではマッピングから作った型を使う
+                        continue;
+                    }
+
+                    $allowed = array_filter($this->allowLists, function (AllowList $al) use ($classMetadata, $fieldName): bool {
+                        return $al->isAllowed($classMetadata->name, $fieldName);
+                    });
+
+                    $type = $this->convertDoctrineTypeToType($definition['type'], $definition['nullable']);
+                    if ($allowed && $type) {
+                        $fields[$fieldName] = $type;
+                    }
+                }
+
                 $fields = array_reduce($classMetadata->associationMappings, function (array $acc, ManyToManyInverseSideMapping|ManyToManyOwningSideMapping|ManyToOneAssociationMapping|OneToManyAssociationMapping|OneToOneInverseSideMapping|OneToOneOwningSideMapping $mapping) use ($classMetadata): array {
                     $fieldName = $mapping['fieldName'];
 
@@ -123,24 +154,31 @@ class Types
     {
         if (isset($fieldMapping['id'])) {
             $type = Type::id();
-        } else {
-            // マッピングに無い Doctrine 型 (date / bigint / json 等) は null になり得る
-            $type = [
-                'string' => Type::string(),
-                'text' => Type::string(),
-                'integer' => Type::int(),
-                'decimal' => Type::float(),
-                'datetimetz' => DateTimeType::dateTime(),
-                'smallint' => Type::int(),
-                'boolean' => Type::boolean(),
-            ][$fieldMapping['type']] ?? null;
+
+            return $fieldMapping['nullable'] ? $type : Type::nonNull($type);
         }
+
+        return $this->convertDoctrineTypeToType($fieldMapping['type'], (bool) $fieldMapping['nullable']);
+    }
+
+    private function convertDoctrineTypeToType(string $doctrineType, bool $nullable): ScalarType|NonNull|null
+    {
+        // マッピングに無い Doctrine 型 (date / bigint / json 等) は null になり得る
+        $type = [
+            'string' => Type::string(),
+            'text' => Type::string(),
+            'integer' => Type::int(),
+            'decimal' => Type::float(),
+            'datetimetz' => DateTimeType::dateTime(),
+            'smallint' => Type::int(),
+            'boolean' => Type::boolean(),
+        ][$doctrineType] ?? null;
 
         if ($type === null) {
             return null;
         }
 
-        return $fieldMapping['nullable'] ? $type : Type::nonNull($type);
+        return $nullable ? $type : Type::nonNull($type);
     }
 
     /**
